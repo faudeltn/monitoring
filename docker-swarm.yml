@@ -1,0 +1,170 @@
+version: '3.7'
+
+services:
+  cadvisor:
+    image: google/cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    networks:
+      - monitoring
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 128M
+
+  node-exporter:
+    image: faudel/node-exporter
+    ports:
+      - 9100:9100
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /etc/hostname:/etc/host_hostname
+      - /etc/hostname:/etc/nodename
+    environment:
+      - HOST_HOSTNAME=/etc/host_hostname
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points'
+      - "^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)"
+      - '--collector.textfile.directory=/etc/node-exporter/'
+    networks:
+      - monitoring
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 128M
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.12.0
+    networks:
+      - monitoring
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          memory: 64M
+
+  alertmanager:
+    image: prom/alertmanager:v0.17.0
+    ports:
+      - 9093:9093  
+    configs:
+      - source: alertmanager_config
+        target: /etc/alertmanager/config.yml
+      - source: basicauth_htpasswd
+        target: /etc/htpasswd
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - alertmanager:/alertmanager
+    networks:
+      - monitoring
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+           - node.role==manager
+      resources:
+        limits:
+          memory: 100M
+
+  prometheus:
+    image: prom/prometheus:v2.9.2
+    user: root
+    ports:
+      - 9090:9090
+    volumes:
+      - promconfig:/etc/prometheus
+      - promdata:/prometheus
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+      - source: prometheus_rules
+        target: /etc/prometheus/alert.rules
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - monitoring
+    deploy:
+      placement:
+        constraints:
+          - node.role==manager
+      resources:
+        limits:
+          memory: 500M
+
+  pushgateway:
+    image: prom/pushgateway:v0.8.0
+    ports:
+      - 9091:9091
+    networks:
+      - monitoring
+    configs:
+      - source: basicauth_htpasswd
+        target: /etc/htpasswd
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role==manager
+      resources:
+        limits:
+          memory: 64M
+
+  grafana:
+    image: grafana/grafana:6.2.1
+    ports: 
+      - 3000:3000
+    volumes:
+      - grafanadata:/var/lib/grafana
+    environment:
+      #- GF_SERVER_ROOT_URL=http://grafana.${DOMAIN:-localhost}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      #- GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      #- PROMETHEUS_ENDPOINT=http://prometheus:9090
+    networks:
+      - monitoring
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role==manager
+      resources:
+        limits:
+          memory: 384M
+
+networks:
+  monitoring:
+    name: monitoring
+    external: true
+
+volumes:
+  promconfig: {}
+  promdata: {}
+  grafanadata: {}
+  alertmanager: {}
+
+configs:
+  alertmanager_config:
+    file: ./alertmanager/configs/alertmanager.yml
+  prometheus_config:
+    file: ./prometheus/configs/prometheus.yml
+  prometheus_rules:
+    file: ./prometheus/rules/alert.rules
+  basicauth_htpasswd:
+    file: ./htpasswd
