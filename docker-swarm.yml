@@ -60,8 +60,6 @@ services:
     configs:
       - source: alertmanager_config
         target: /etc/alertmanager/config.yml
-      - source: basicauth_htpasswd
-        target: /etc/htpasswd
     command:
       - '--config.file=/etc/alertmanager/config.yml'
       - '--storage.path=/alertmanager'
@@ -112,9 +110,6 @@ services:
       - 9091:9091
     networks:
       - monitoring
-    configs:
-      - source: basicauth_htpasswd
-        target: /etc/htpasswd
     deploy:
       replicas: 1
       placement:
@@ -166,5 +161,3 @@ configs:
     file: ./prometheus/configs/prometheus.yml
   prometheus_rules:
     file: ./prometheus/rules/alert.rules
-  basicauth_htpasswd:
-    file: ./htpasswd
